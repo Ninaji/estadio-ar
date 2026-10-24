@@ -137,6 +137,7 @@ async function boot() {
   if (caps.backend === 'xr8') preloadXR8().catch(() => {});
   await app.setMode(viewer);
   resetCamera(false);
+  syncARButton();
 }
 
 /** Enquadra a maquete inteira; telas em retrato precisam de mais distância. */
@@ -189,6 +190,11 @@ hud.btn3D.addEventListener('click', async () => {
 });
 
 hud.btnAR.addEventListener('click', () => enterAR());
+hud.btnARTop.addEventListener('click', () => enterAR());
+
+function syncARButton() {
+  hud.btnARTop.style.display = caps?.backend && app.mode === viewer ? '' : 'none';
+}
 
 async function enterAR() {
   synth.unlock();
@@ -201,7 +207,9 @@ async function enterAR() {
     onPlaced: () => {
       synth.thump();
       sparks.emit({ position: { x: 0, y: -13, z: 0 }, count: 160, speed: 40, spread: 0.3, dir: { x: 0, y: 0.2, z: 0 }, ring: 110, colors: [0xffffff, 0xd6d3cc, 0x7df9ff], life: [0.6, 1.2], size: [1.5, 3], gravity: 0, drag: 2 });
-      startExperience();
+      // a cada posicionamento a arena é "impressa" de novo sobre o chão
+      if (state.built) playBuild({ arena, sparks, confetti, synth, duration: 2.6 });
+      else startExperience();
       hud.modeChip.textContent = 'AR';
     },
     onTap: (ray) => pickRay(ray),
@@ -220,6 +228,7 @@ async function enterAR() {
     }
     hud.modeChip.textContent = 'AR';
     closeSheet();
+    syncARButton();
   } catch (err) {
     arFailed(err);
   }
@@ -248,6 +257,7 @@ async function exitAR() {
   await app.setMode(viewer);
   resetCamera(false);
   hud.modeChip.textContent = '3D';
+  syncARButton();
 }
 
 // som

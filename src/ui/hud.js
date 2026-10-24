@@ -72,10 +72,11 @@ export class Hud {
     this.modeChip = h('span', { class: 'chip' }, '3D');
     this.btnSound = h('button', { class: 'icon-btn', title: 'Som' }, icon('sound'));
     this.btnHelp = h('button', { class: 'icon-btn', title: 'Ajuda', onClick: () => this.openModal() }, icon('help'));
-    this.btnExit = h('button', { class: 'icon-btn', title: 'Sair', style: { display: 'none' } }, icon('exit'));
+    this.btnExit = h('button', { class: 'icon-btn', title: 'Sair do AR', style: { display: 'none' } }, icon('exit'));
+    this.btnARTop = h('button', { class: 'icon-btn on', title: 'Ver em AR', style: { display: 'none' } }, icon('ar'));
     const topbar = h('div', { class: 'topbar' },
       h('div', { class: 'brand' }, h('b', {}, 'ARENA AURORA'), this.modeChip),
-      h('div', { class: 'spacer' }), this.btnSound, this.btnHelp, this.btnExit);
+      h('div', { class: 'spacer' }), this.btnARTop, this.btnSound, this.btnHelp, this.btnExit);
 
     this.toolButtons = {};
     const toolbar = h('nav', { class: 'toolbar' });

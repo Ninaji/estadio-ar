@@ -6,7 +6,9 @@ export class App {
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // celulares: até 1,5× para manter a taxa de quadros; desktop: até 2×
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.5 : 2));
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.xr.enabled = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
