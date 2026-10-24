@@ -42,6 +42,7 @@ export class ARBase {
   /** Cada modo chama isto ao iniciar. */
   setupAR(app, bodyClass) {
     this.app = app;
+    this.isSetup = true;
     this.bodyClass = bodyClass;
     document.body.classList.add('ar', bodyClass, 'ar-placing');
     app.scene.add(this.reticle);
@@ -57,6 +58,7 @@ export class ARBase {
     hud.btnExit.style.display = '';
     hud.btnExit.onclick = () => this.ctx.onExit();
     hud.arTip.textContent = 'Mova o celular devagar apontando para o chão…';
+    app.resize(); // o 8th Wall ignora (é dono do canvas); nos demais restaura o tamanho
   }
 
   #buildScaleChips() {
@@ -188,6 +190,8 @@ export class ARBase {
   }
 
   teardownAR() {
+    if (!this.isSetup) return;
+    this.isSetup = false;
     const { app } = this;
     document.body.classList.remove('ar', this.bodyClass, 'ar-placing');
     app.scene.remove(this.reticle);

@@ -12,6 +12,7 @@ export class WebXRMode extends ARBase {
 
   /** Deve ser chamado dentro do toque do usuário. */
   async start(app) {
+    this.app = app;
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test'],
       optionalFeatures: ['dom-overlay', 'local-floor'],
@@ -22,17 +23,13 @@ export class WebXRMode extends ARBase {
     const { renderer } = app;
     renderer.xr.setReferenceSpaceType('local');
     renderer.xr.setFramebufferScaleFactor(0.85);
-    await renderer.xr.setSession(session);
-    const viewer = await session.requestReferenceSpace('viewer');
-    this.hitSource = await session.requestHitTestSource({ space: viewer });
-    session.addEventListener('end', () => {
-      this.session = null;
-      this.ctx.onExit?.(true);
-    });
     const tmp = new THREE.Matrix4();
     const pos = new THREE.Vector3();
+    // o laço precisa ser definido ANTES da sessão: no r186 setAnimationLoop religa o laço
+    // da janela, e depois do sessionstart isso desenharia fora dos quadros XR
     renderer.setAnimationLoop((t, frame) => {
-      if (frame && this.hitSource && !this.placed) {
+      if (!frame) return;
+      if (this.hitSource && !this.placed) {
         const ref = renderer.xr.getReferenceSpace();
         const hits = frame.getHitTestResults(this.hitSource);
         const pose = hits.length ? hits[0].getPose(ref) : null;
@@ -47,6 +44,19 @@ export class WebXRMode extends ARBase {
       app.tick(t);
       app.render();
     });
+    await renderer.xr.setSession(session);
+    const viewer = await session.requestReferenceSpace('viewer');
+    this.hitSource = await session.requestHitTestSource({ space: viewer });
+    session.addEventListener('end', () => {
+      this.session = null;
+      this.ctx.onExit?.(true);
+    });
+    // sem dom-overlay a interface some: um toque na tela posiciona o estádio
+    if (!session.domOverlayState) {
+      session.addEventListener('select', () => {
+        if (!this.placed) this.place();
+      });
+    }
   }
 
   pickCamera() {
@@ -55,6 +65,7 @@ export class WebXRMode extends ARBase {
   }
 
   async stop() {
+    if (!this.app) return;
     this.app.renderer.setAnimationLoop(null);
     this.hitSource?.cancel?.();
     this.hitSource = null;

@@ -43,7 +43,7 @@ export class App {
   }
 
   resize() {
-    if (this.renderer.xr.isPresenting) return;
+    if (this.renderer.xr.isPresenting || this.mode?.ownsCanvas) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
@@ -56,7 +56,14 @@ export class App {
   }
 
   async setMode(mode) {
-    if (this.mode) await this.mode.stop();
+    const old = this.mode;
+    if (old) {
+      try {
+        await old.stop();
+      } catch (err) {
+        console.warn('Falha ao encerrar o modo', old.id, err);
+      }
+    }
     this.mode = mode;
     await mode.start(this);
   }

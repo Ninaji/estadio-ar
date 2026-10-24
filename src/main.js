@@ -218,13 +218,19 @@ async function enterAR() {
   };
   try {
     if (caps.backend === 'webxr') await app.setMode(new WebXRMode(ctx));
-    else if (caps.backend === 'xr8') {
-      hud.arTip.textContent = 'Carregando o motor de AR…';
-      await motion;
-      await app.setMode(new XR8Mode(ctx));
-    } else {
-      await motion;
-      await app.setMode(new GyroMode(ctx));
+    else {
+      if (!(await motion)) {
+        hud.toast('Sem acesso aos sensores de movimento. No iPhone: Ajustes › Safari › Movimento e orientação.', 5000);
+        await exitAR();
+        startExperience();
+        return;
+      }
+      if (caps.backend === 'xr8') {
+        hud.arTip.textContent = 'Carregando o motor de AR…';
+        await app.setMode(new XR8Mode(ctx));
+      } else {
+        await app.setMode(new GyroMode(ctx));
+      }
     }
     hud.modeChip.textContent = 'AR';
     closeSheet();
@@ -252,9 +258,16 @@ async function arFailed(err) {
   startExperience();
 }
 
+let exiting = false;
 async function exitAR() {
-  if (app.mode === viewer) return;
-  await app.setMode(viewer);
+  if (app.mode === viewer || exiting) return;
+  exiting = true;
+  try {
+    await app.setMode(viewer);
+  } finally {
+    exiting = false;
+  }
+  app.resize(); // o aparelho pode ter girado durante o AR
   resetCamera(false);
   hud.modeChip.textContent = '3D';
   syncARButton();

@@ -36,6 +36,7 @@ html, body {
 }
 body.night { background: radial-gradient(120% 90% at 50% 0%, #1a1440 0%, #0c0a24 45%, #04040c 100%); }
 body.ar-camera, body.ar-xr { background: transparent; }
+body.ar-xr8 { background: #000; }
 
 #scene { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; outline: none; }
 #camera-feed { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: -1; }

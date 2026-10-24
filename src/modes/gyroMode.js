@@ -23,6 +23,7 @@ export class GyroMode extends ARBase {
   }
 
   async start(app) {
+    this.app = app;
     this.setupAR(app, 'ar-camera');
     const video = document.createElement('video');
     video.id = 'camera-feed';
@@ -57,6 +58,7 @@ export class GyroMode extends ARBase {
   }
 
   async stop() {
+    if (!this.app) return;
     this.app.renderer.setAnimationLoop(null);
     window.removeEventListener('deviceorientation', this.onOrient);
     this.stream?.getTracks().forEach((tr) => tr.stop());
