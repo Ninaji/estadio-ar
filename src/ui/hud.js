@@ -32,7 +32,7 @@ export const DOCK = [
   { id: 'desmontar', label: 'Desmontar', icon: 'explode' },
   { id: 'camadas', label: 'Camadas', icon: 'layers' },
   { id: 'rota', label: 'Rota', icon: 'route' },
-  { id: 'show', label: 'Show', icon: 'show' },
+  { id: 'show', label: 'Efeitos', icon: 'show' },
 ];
 
 export class Hud {
@@ -95,7 +95,6 @@ export class Hud {
     this.panel = h('section', { class: 'panel' },
       h('div', { class: 'panel-head' }, this.panelIcon, this.panelTitle, blk({ icon: 'close', title: 'Fechar', size: 16, onClick: () => this.closePanel(true) })),
       this.panelBody);
-    this.toastEl = h('div', { class: 'toast' });
     this.arTip = h('div', { class: 'ar-tip' }, 'Mova o celular devagar apontando para o chão…');
     this.btnPlace = blk({ icon: 'place', label: 'Posicionar estádio', cls: 'gold big', size: 22, disabled: true });
     this.scaleChips = h('div', { class: 'grid c3' });
@@ -104,7 +103,7 @@ export class Hud {
       class: 'attribution', href: 'https://github.com/8thwall/engine/blob/main/LICENSE', target: '_blank', rel: 'noopener',
     }, 'AR: 8th Wall Engine © Niantic Spatial — XR Engine License');
     this.fpsEl = h('div', { class: 'fps' });
-    this.hud = h('div', { class: 'hud' }, topbar, this.panel, dock, this.toastEl, this.arPanel, this.attribution, this.fpsEl);
+    this.hud = h('div', { class: 'hud' }, topbar, this.panel, dock, this.arPanel, this.attribution, this.fpsEl);
     this.root.append(this.hud);
   }
 
@@ -119,7 +118,8 @@ export class Hud {
           h('li', {}, 'Cortar: planta (horizontal), seção (vertical) ou fatia de torta.'),
           h('li', {}, 'Desmontar: separa os níveis ou os 4 pedaços.'),
           h('li', {}, 'Camadas: liga e desliga cada sistema; Raio-X deixa a estrutura transparente.'),
-          h('li', {}, 'Rota: escolha o assento e veja o caminho desde o portão.'),
+          h('li', {}, 'Rota: escolha o assento e veja o caminho desde o portão, uma etapa por vez.'),
+          h('li', {}, 'Efeitos: torcida, partida e telões (ligados de dia); a noite de jogo é opcional.'),
           h('li', {}, 'Reset (no alto) volta tudo ao início.')),
         h('h2', {}, 'Créditos'),
         h('p', {}, 'Estádio fictício gerado em voxels de 0,5 m com three.js. Sons sintetizados com Web Audio. Fonte Pixelify Sans (OFL).'),
@@ -172,11 +172,9 @@ export class Hud {
     if (user && this.onPanelClosed) this.onPanelClosed(key);
   }
 
-  toast(msg, ms = 2600) {
-    this.toastEl.textContent = msg;
-    this.toastEl.classList.add('show');
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), ms);
+  /** Aviso importante (erros de câmera, permissões): aparece no painel de baixo, nunca no topo. */
+  notice(msg) {
+    this.openPanel({ key: 'aviso', title: 'Aviso', icon: 'help', body: h('p', {}, msg) });
   }
 
   openModal() {

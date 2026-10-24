@@ -8,7 +8,6 @@ export class Synth {
   constructor() {
     this.ctx = null;
     this.muted = false;
-    this.crowd = null;
   }
 
   /** Precisa ser chamado dentro de um toque (iOS). */
@@ -253,29 +252,6 @@ export class Synth {
     }
   }
 
-  /** Grito de gol: rugido grave da multidão. */
-  cheer(power = 1) {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime;
-    for (const [freq, q, peak] of [[380, 0.7, 0.6], [800, 1.2, 0.35], [1400, 1.6, 0.14]]) {
-      const src = this.ctx.createBufferSource();
-      src.buffer = this.noise;
-      const f = this.ctx.createBiquadFilter();
-      f.type = 'bandpass';
-      f.Q.value = q;
-      f.frequency.setValueAtTime(freq * 0.7, t);
-      f.frequency.linearRampToValueAtTime(freq * 1.1, t + 1.2);
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(peak * power, t + 0.35);
-      g.gain.setValueAtTime(peak * power, t + 1.6);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
-      src.connect(f).connect(g).connect(this.master);
-      src.start(t, Math.random());
-      src.stop(t + 3.6);
-    }
-  }
-
   /** Fogos: chiado subindo, estrondo grave e estalos de cascalho. */
   firework(delay = 0) {
     if (!this.ready) return;
@@ -297,45 +273,5 @@ export class Synth {
     this.#body(t + 0.72, 80, 35, 0.5, 0.55);
     this.#grain(t + 0.72, { freq: 220, q: 0.7, dur: 0.45, gain: 0.6, type: 'lowpass' });
     for (let i = 0; i < 7; i++) this.#grain(t + 0.85 + Math.random() * 0.5, { freq: rand(900, 1600), q: 2.5, dur: 0.04, gain: 0.18 });
-  }
-
-  /** Ambiente de torcida contínuo (modo Show). */
-  startCrowd(level = 0.24) {
-    if (!this.ctx || this.crowd) return;
-    const t = this.ctx.currentTime;
-    const out = this.ctx.createGain();
-    out.gain.setValueAtTime(0.0001, t);
-    out.gain.exponentialRampToValueAtTime(level, t + 1.5);
-    out.connect(this.master);
-    const layers = [];
-    for (const [freq, q, gain, rate] of [[300, 0.7, 0.9, 0.13], [650, 1.1, 0.5, 0.21], [1200, 1.5, 0.18, 0.34]]) {
-      const src = this.ctx.createBufferSource();
-      src.buffer = this.noise;
-      src.loop = true;
-      const f = this.ctx.createBiquadFilter();
-      f.type = 'bandpass';
-      f.frequency.value = freq;
-      f.Q.value = q;
-      const g = this.ctx.createGain();
-      g.gain.value = gain;
-      const lfo = this.ctx.createOscillator();
-      lfo.frequency.value = rate;
-      const lg = this.ctx.createGain();
-      lg.gain.value = gain * 0.45;
-      lfo.connect(lg).connect(g.gain);
-      src.connect(f).connect(g).connect(out);
-      src.start(0, Math.random() * 2);
-      lfo.start();
-      layers.push(src, lfo);
-    }
-    this.crowd = { out, layers, level };
-  }
-
-  stopCrowd() {
-    if (!this.crowd) return;
-    const { out, layers } = this.crowd;
-    out.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.4);
-    setTimeout(() => layers.forEach((n) => n.stop()), 2000);
-    this.crowd = null;
   }
 }

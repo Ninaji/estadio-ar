@@ -42,6 +42,7 @@ export function createSharedUniforms(palette) {
     uGhost: { value: 0 },
     uTime: { value: 0 },
     uNight: { value: 0 },
+    uFx: { value: 0 },
     uBuildJ: { value: 1e5 },
     uLightDir: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() },
     uOpacity: { value: 1 },
@@ -84,7 +85,7 @@ const fragment = /* glsl */ `
   uniform vec2 uWedgeC;
   uniform int uHidden;
   uniform int uGhost;
-  uniform float uTime, uNight, uBuildJ, uOpacity, uVoxel;
+  uniform float uTime, uNight, uFx, uBuildJ, uOpacity, uVoxel;
   uniform vec3 uLightDir, uOrigin;
   in vec3 vGrid;
   in vec3 vN;
@@ -170,7 +171,8 @@ const fragment = /* glsl */ `
       } else if (vInfo.b > 0.4) {
         ec = hsv(fract(uTime * 0.12 + vGrid.y * 0.012 + (vGrid.x + vGrid.z) * 0.004), 0.75, 1.0);
       }
-      col += ec * em * (0.12 + 0.95 * uNight);
+      // de dia com efeitos os LEDs e telões já brilham; à noite brilham bem mais
+      col += ec * em * (0.12 + 0.38 * uFx * (1.0 - uNight) + 0.95 * uNight);
     }
     #ifdef GHOST_PASS
       // raio-X: vidro azulado com as arestas dos voxels acesas

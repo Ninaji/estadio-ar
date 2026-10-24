@@ -120,15 +120,19 @@ export function layersPanel(ctx) {
 }
 
 export function showPanel(ctx) {
-  const on = ctx.show?.on;
+  const show = ctx.show;
+  const fx = !!show?.fxOn;
   const body = h('div', {},
-    h('p', {}, 'Noite de jogo: refletores, telões, fachada de LED, torcida e mini partida.'),
-    h('div', { class: 'grid c1' }, blk({ icon: 'show', label: on ? 'Desligar o show' : 'Ligar noite de jogo', cls: on ? 'on big' : 'gold big', onClick: () => ctx.toggleShow() })),
+    h('p', {}, 'Torcida nas arquibancadas, mini partida e telões animados. A noite de jogo acende refletores e fogos.'),
+    h('div', { class: 'ctrl-row' }, h('span', { class: 'lbl' }, 'Luz')),
+    choice(2, [{ id: 'dia', label: 'Dia', icon: 'sun' }, { id: 'noite', label: 'Noite', icon: 'moon' }], show?.nightOn ? 'noite' : 'dia', (id) => ctx.setNight(id === 'noite')),
+    h('div', { class: 'ctrl-row' }, h('span', { class: 'lbl' }, 'Efeitos')),
+    choice(2, [{ id: 'on', label: 'Ligados', icon: 'show' }, { id: 'off', label: 'Desligados', icon: 'close' }], fx ? 'on' : 'off', (id) => ctx.setFx(id === 'on')),
     h('div', { class: 'grid c3' },
-      blk({ icon: 'goal', label: 'Gol!', disabled: !on, onClick: () => ctx.show.goal(0) }),
-      blk({ icon: 'wave', label: 'Ola', disabled: !on, onClick: () => ctx.show.wave() }),
-      blk({ icon: 'fireworks', label: 'Fogos', disabled: !on, onClick: () => ctx.fireworks() })));
-  return { title: 'Show', icon: 'show', body };
+      blk({ icon: 'goal', label: 'Gol!', disabled: !fx, onClick: () => show.goal(0, true) }),
+      blk({ icon: 'wave', label: 'Ola', disabled: !fx, onClick: () => show.wave() }),
+      blk({ icon: 'fireworks', label: 'Fogos', disabled: !fx, onClick: () => ctx.fireworks() })));
+  return { title: 'Efeitos', icon: 'show', body };
 }
 
 export function infoPanel(info, ctx) {

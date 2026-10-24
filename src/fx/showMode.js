@@ -16,7 +16,9 @@ const beamFragment = /* glsl */ `
 export class ShowMode {
   constructor({ app, arena, crowd, match, sparks, confetti, synth, hud }) {
     Object.assign(this, { app, arena, crowd, match, sparks, confetti, synth, hud });
-    this.on = false;
+    this.fxOn = false;
+    this.nightOn = false;
+    this.waveTimer = 8;
     this.night = { v: 0 };
     this.fireworkTimer = 0;
     this.shells = [];
@@ -51,8 +53,8 @@ export class ShowMode {
     }
     arena.root.add(this.beams);
     this.#buildElevators();
-    app.onUpdate((dt, t) => this.update(dt, t));
-    match.onGoal = (team) => this.goal(team);
+    app.onUpdate((dt) => this.update(dt));
+    match.onGoal = (team) => this.goal(team, false);
   }
 
   #buildElevators() {
@@ -77,9 +79,20 @@ export class ShowMode {
     for (const c of this.cabins) c.visible = true;
   }
 
-  toggle(on = !this.on) {
-    this.on = on;
-    const { arena, crowd, match, synth } = this;
+  /** Efeitos (padrão, de dia): torcida, mini partida, telões e LEDs animados, ola automática. */
+  setFx(on) {
+    this.fxOn = on;
+    this.crowd.visible = on;
+    this.match.visible = on;
+    if (on) this.match.kickoff();
+    gsap.to(this.arena.uniforms.uFx, { value: on ? 1 : 0, duration: 0.8 });
+    this.waveTimer = 8;
+  }
+
+  /** Noite de jogo: escurece, acende refletores e feixes de luz; fogos de tempos em tempos. */
+  setNight(on) {
+    this.nightOn = on;
+    const { arena } = this;
     document.body.classList.toggle('night', on);
     gsap.to(this.night, {
       v: on ? 1 : 0,
@@ -93,20 +106,15 @@ export class ShowMode {
       },
     });
     this.beams.visible = true;
-    crowd.visible = on;
-    match.visible = on;
-    if (on) {
-      match.kickoff();
-      synth.startCrowd();
-      synth.whistle(true);
-      this.wave();
-    } else {
-      synth.stopCrowd();
-      setTimeout(() => { if (!this.on) this.beams.visible = false; }, 1700);
-    }
+    this.fireworkTimer = 3;
+    if (!on) setTimeout(() => { if (!this.nightOn) this.beams.visible = false; }, 1700);
   }
 
-  wave() {
+  get on() {
+    return this.nightOn;
+  }
+
+  wave(silent = false) {
     const u = this.crowd.uniforms;
     this.waveTween?.kill();
     u.uWavePos.value = 0;
@@ -117,28 +125,34 @@ export class ShowMode {
       ease: 'none',
       onComplete: () => gsap.to(u.uWave, { value: 0, duration: 0.8 }),
     });
-    this.synth.whoosh(1.2, true);
+    if (!silent) this.synth.whoosh(1.2, true);
   }
 
-  goal(team = 0) {
+  /** Gol: manual (botão) é a festa completa; os gols da mini partida são discretos. */
+  goal(team = 0, manual = true) {
     const { synth, confetti, crowd } = this;
-    this.hud.toast(team === 0 ? 'GOOOOL da Aurora! 🎉' : 'Gol do visitante!', 3000);
-    synth.whistle(false);
-    synth.cheer(1.2);
-    setTimeout(() => synth.horn(), 300);
+    if (manual) {
+      synth.whistle(false);
+      setTimeout(() => synth.horn(), 250);
+    } else {
+      synth.chime();
+    }
     gsap.fromTo(crowd.uniforms.uCheer, { value: 1 }, { value: 0, duration: 5, ease: 'power2.in' });
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2;
+    const bursts = manual ? 6 : 3;
+    for (let k = 0; k < bursts; k++) {
+      const a = (k / bursts) * Math.PI * 2;
       confetti.emit({
         position: { x: Math.cos(a) * 60, y: 38, z: Math.sin(a) * 75 },
-        count: 90, speed: 10, spread: 1, colors: CONFETTI, life: [3, 5], size: [0.5, 0.9], gravity: -3, drag: 1.2, flutter: 8,
+        count: manual ? 90 : 50, speed: 10, spread: 1, colors: CONFETTI, life: [3, 5], size: [0.5, 0.9], gravity: -3, drag: 1.2, flutter: 8,
       });
     }
-    for (let k = 0; k < 5; k++) setTimeout(() => this.launchFirework(), k * 350);
-    gsap.fromTo(this.arena.uniforms.uNight, { value: this.night.v }, { value: this.night.v * 0.6, duration: 0.15, yoyo: true, repeat: 7 });
+    const shots = manual ? 5 : 2;
+    for (let k = 0; k < shots; k++) setTimeout(() => this.launchFirework(manual), k * 350);
+    if (this.nightOn) gsap.fromTo(this.arena.uniforms.uNight, { value: this.night.v }, { value: this.night.v * 0.6, duration: 0.15, yoyo: true, repeat: 7 });
+    void team;
   }
 
-  launchFirework() {
+  launchFirework(sound = true) {
     const seg = (Math.random() * 9) | 0;
     const len = SEGMENTS[seg].kind === 'corner' ? Math.PI / 2 : SEGMENTS[seg].len;
     const p = pointAt(seg, Math.random() * len, 50);
@@ -148,10 +162,10 @@ export class ShowMode {
       t: 1.1 + Math.random() * 0.4,
       color: CONFETTI[(Math.random() * CONFETTI.length) | 0],
     });
-    this.synth.firework();
+    if (sound) this.synth.firework();
   }
 
-  update(dt, t) {
+  update(dt) {
     for (let i = this.shells.length - 1; i >= 0; i--) {
       const s = this.shells[i];
       s.t -= dt;
@@ -163,14 +177,22 @@ export class ShowMode {
         this.shells.splice(i, 1);
       }
     }
-    if (!this.on) return;
-    this.fireworkTimer -= dt;
-    if (this.fireworkTimer <= 0) {
-      this.fireworkTimer = 4 + Math.random() * 5;
-      this.launchFirework();
-    }
+    if (!this.fxOn) return;
     this.crowd.update();
     this.match.update(dt);
-    void t;
+    // ola automática de vez em quando (sem som)
+    this.waveTimer -= dt;
+    if (this.waveTimer <= 0) {
+      this.waveTimer = 35 + Math.random() * 25;
+      this.wave(true);
+    }
+    // fogos periódicos só à noite, sem som
+    if (this.nightOn) {
+      this.fireworkTimer -= dt;
+      if (this.fireworkTimer <= 0) {
+        this.fireworkTimer = 8 + Math.random() * 6;
+        this.launchFirework(false);
+      }
+    }
   }
 }

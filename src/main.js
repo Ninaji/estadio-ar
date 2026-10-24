@@ -181,8 +181,8 @@ async function startExperience() {
     state.built = true;
     await playBuild({ arena, sparks, confetti, synth });
     show.showCabins();
+    show.setFx(true); // padrão: dia com efeitos (torcida, partida, telões)
     synth.whistle(false);
-    hud.toast('Toque em qualquer parte para descobrir o que é', 3200);
   }
 }
 
@@ -223,9 +223,9 @@ async function enterAR() {
     if (caps.backend === 'webxr') await app.setMode(new WebXRMode(ctx));
     else {
       if (!(await motion)) {
-        hud.toast('Sem acesso aos sensores de movimento. No iPhone: Ajustes › Safari › Movimento e orientação.', 5000);
         await exitAR();
-        startExperience();
+        await startExperience();
+        hud.notice('Sem acesso aos sensores de movimento, o AR não funciona. No iPhone: Ajustes › Safari › Movimento e orientação.');
         return;
       }
       if (caps.backend === 'xr8') {
@@ -248,7 +248,7 @@ async function arFailed(err) {
   // 8th Wall falhou? tenta o modo câmera + giroscópio; senão volta ao 3D
   if (app.mode?.id === 'xr8' || caps.backend === 'xr8') {
     caps.backend = 'gyro';
-    hud.toast('Rastreamento de chão indisponível — usando câmera + giroscópio', 3500);
+    hud.arTip.textContent = 'Rastreamento de chão indisponível: usando câmera + giroscópio.';
     try {
       await app.setMode(new GyroMode({ hud, synth, onPlaced: () => startExperience(), onTap: (r) => pickRay(r), onExit: () => exitAR() }));
       return;
@@ -256,9 +256,9 @@ async function arFailed(err) {
       console.error(e2);
     }
   }
-  hud.toast('Não foi possível abrir a câmera. Abrindo em 3D.', 3500);
   await exitAR();
-  startExperience();
+  await startExperience();
+  hud.notice('Não foi possível abrir a câmera, então a arena abriu em 3D.');
 }
 
 let exiting = false;
@@ -386,7 +386,7 @@ function liveTools() {
   if (state.explode.levels > 0.01 || state.explode.quads > 0.01) live.add('desmontar');
   if (state.hidden || (state.ghost && !routeView.route)) live.add('camadas');
   if (routeView.route) live.add('rota');
-  if (show?.on) live.add('show');
+  if (show?.nightOn || (show && !show.fxOn)) live.add('show');
   return live;
 }
 
@@ -509,7 +509,6 @@ function setPlanLevel(i) {
     onUpdate: () => cuts.set('h', { on: true }),
     onComplete: () => hud.panelKey === 'cortar' && refreshPanel(),
   });
-  hud.toast(`Planta: ${L.name}`);
 }
 
 function flipSection() {
@@ -588,13 +587,19 @@ function setGhost(on) {
 function toggleXray() {
   setGhost(!state.ghost);
   synth.toggle(state.ghost);
-  hud.toast(state.ghost ? 'Raio-X: estrutura, fachada, cobertura e solo transparentes' : 'Raio-X desligado');
   return state.ghost;
 }
 
 // --- show --------------------------------------------------------------------
-function toggleShow() {
-  show.toggle(!show.on);
+function setNight(on) {
+  show.setNight(on);
+  synth.toggle(on);
+  refreshPanel();
+}
+
+function setFx(on) {
+  show.setFx(on);
+  synth.toggle(on);
   refreshPanel();
 }
 
@@ -612,14 +617,14 @@ function resetAll() {
   setHidden(0);
   if (routeView.route) clearRoute();
   if (state.ghost) setGhost(false);
-  if (show?.on) show.toggle(false);
+  if (show?.nightOn) show.setNight(false);
+  if (show && !show.fxOn) show.setFx(true);
   highlight.hide();
   hud.closePanel(false);
   if (app.mode === viewer) resetCamera(true);
   else app.mode?.resetTransform?.();
   synth.breakBlock();
   synth.whoosh(0.7, false);
-  hud.toast('Tudo de volta ao início');
   refreshDock();
 }
 
@@ -630,13 +635,13 @@ function traceRoute(ticket) {
   Object.assign(state.ticket, ticket);
   const q = seatIndex.get(seatKey(ticket.tier, ticket.sector, ticket.row, ticket.num));
   if (q === undefined) {
-    hud.toast('Esse assento não existe nesta fila.');
+    hud.notice('Esse assento não existe nesta fila. Escolha outro número.');
     return;
   }
   const seat = seatRecord(q);
   const route = planRoute(graph, seat, arena.dims, { gate: ticket.gate, accessible: ticket.accessible });
   if (!route) {
-    hud.toast('Não encontrei um caminho para esse assento.');
+    hud.notice('Não encontrei um caminho para esse assento.');
     return;
   }
   if (state.explode.levels || state.explode.quads) assemble();
@@ -650,7 +655,6 @@ function traceRoute(ticket) {
     routeUI?.setPlaying(false);
     confetti.emit({ position: { x: p.x, y: p.y + 3, z: p.z }, count: 120, speed: 9, spread: 1, colors: CONFETTI, life: [1.5, 3], size: [0.3, 0.6], gravity: -4, drag: 1, flutter: 6 });
     synth.chime();
-    hud.toast('Você chegou ao seu lugar! 🎉', 3000);
   };
   routeUI = panels.routePanel(route, ctxApi);
   hud.openPanel({ key: 'rota', ...routeUI });
@@ -724,7 +728,8 @@ const ctxApi = {
   toggleCategory,
   isolate,
   toggleXray,
-  toggleShow,
+  setNight,
+  setFx,
   fireworks,
   traceRoute,
   randomTicket,
