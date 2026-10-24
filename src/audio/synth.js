@@ -1,4 +1,8 @@
-// Sons 100% sintetizados com Web Audio (nenhum arquivo de áudio).
+// Sons em estilo "bloco" (inspirados em jogos voxel): grãos curtos de ruído filtrado
+// para pedra, madeira e cascalho, batidas graves e nada de tons agudos puros.
+// Tudo sintetizado em tempo real com Web Audio, sem arquivos.
+
+const rand = (a, b) => a + Math.random() * (b - a);
 
 export class Synth {
   constructor() {
@@ -17,11 +21,15 @@ export class Synth {
       } catch { /* opcional */ }
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.85;
+      this.master.gain.value = 0.9;
+      // passa-baixa geral: corta qualquer chiado agudo
+      const tone = this.ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.frequency.value = 5200;
       const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = -14;
+      comp.threshold.value = -16;
       comp.ratio.value = 4;
-      this.master.connect(comp).connect(this.ctx.destination);
+      this.master.connect(tone).connect(comp).connect(this.ctx.destination);
       this.noise = this.#makeNoise(2.5);
       const resume = () => this.ctx && this.ctx.state !== 'running' && this.ctx.resume();
       document.addEventListener('visibilitychange', () => !document.hidden && resume());
@@ -34,7 +42,7 @@ export class Synth {
 
   setMuted(m) {
     this.muted = m;
-    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.85, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.05);
   }
 
   get ready() {
@@ -47,140 +55,193 @@ export class Synth {
     const d = buf.getChannelData(0);
     let b0 = 0;
     let b1 = 0;
-    let b2 = 0;
     for (let i = 0; i < len; i++) {
       const w = Math.random() * 2 - 1;
-      // ruído rosa aproximado
-      b0 = 0.99765 * b0 + w * 0.099046;
-      b1 = 0.963 * b1 + w * 0.2965164;
-      b2 = 0.57 * b2 + w * 1.0526913;
-      d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.18;
+      b0 = 0.985 * b0 + w * 0.12; // marrom-rosado: mais "terra", menos chiado
+      b1 = 0.6 * b1 + w * 0.5;
+      d[i] = (b0 + b1 * 0.35) * 0.9;
     }
     return buf;
   }
 
-  #noiseSrc(loop = false) {
+  /** Grão de ruído filtrado: a base de todos os sons de bloco. */
+  #grain(t, { freq = 800, q = 1.2, dur = 0.08, gain = 0.4, type = 'bandpass', attack = 0.003 } = {}) {
     const src = this.ctx.createBufferSource();
     src.buffer = this.noise;
-    src.loop = loop;
-    src.loopStart = Math.random();
-    return src;
-  }
-
-  #env(gainNode, t, a, peak, dur) {
-    const g = gainNode.gain;
-    g.setValueAtTime(0.0001, t);
-    g.exponentialRampToValueAtTime(peak, t + a);
-    g.exponentialRampToValueAtTime(0.0001, t + dur);
-  }
-
-  #tone(type, f0, f1, dur, peak = 0.2, delay = 0) {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime + delay;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, t);
-    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    this.#env(g, t, 0.008, peak, dur);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + dur + 0.05);
-  }
-
-  click() {
-    this.#tone('sine', 920, 620, 0.07, 0.18);
-  }
-
-  toggle(on) {
-    this.#tone('triangle', on ? 520 : 780, on ? 780 : 520, 0.09, 0.14);
-    this.#tone('triangle', on ? 1040 : 620, on ? 1240 : 460, 0.08, 0.08, 0.06);
-  }
-
-  beep(pitch = 1) {
-    this.#tone('square', 1100 * pitch, 1100 * pitch, 0.035, 0.035);
-  }
-
-  chime() {
-    [1046.5, 1318.5, 1568, 2093].forEach((f, i) => this.#tone('sine', f, f, 0.6, 0.12, i * 0.09));
-  }
-
-  thump() {
-    if (!this.ready) return;
-    this.#tone('sine', 110, 38, 0.35, 0.5);
-    this.#burst(0.12, 300, 0.25);
-  }
-
-  #burst(dur, freq, peak, q = 1, delay = 0) {
-    const t = this.ctx.currentTime + delay;
-    const src = this.#noiseSrc();
     const f = this.ctx.createBiquadFilter();
-    f.type = 'bandpass';
+    f.type = type;
     f.frequency.value = freq;
     f.Q.value = q;
     const g = this.ctx.createGain();
-    this.#env(g, t, 0.005, peak, dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(f).connect(g).connect(this.master);
-    src.start(t);
+    src.start(t, Math.random() * 2);
     src.stop(t + dur + 0.05);
   }
 
-  /** Sopro filtrado com varredura de frequência (cortes, desmontagem). */
-  whoosh(dur = 0.6, up = true) {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime;
-    const src = this.#noiseSrc();
-    const f = this.ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.Q.value = 2.5;
-    f.frequency.setValueAtTime(up ? 300 : 2400, t);
-    f.frequency.exponentialRampToValueAtTime(up ? 2600 : 280, t + dur);
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.5, t + dur * 0.4);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f).connect(g).connect(this.master);
-    src.start(t);
-    src.stop(t + dur + 0.1);
-  }
-
-  /** Apito do árbitro com trinado. */
-  whistle(long = false) {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime;
-    const dur = long ? 1.1 : 0.35;
+  /** Corpo grave curto (o "toc" de um bloco batendo). */
+  #body(t, f0, f1, dur, gain) {
     const o = this.ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.value = 2900;
-    const lfo = this.ctx.createOscillator();
-    lfo.frequency.value = 28;
-    const lg = this.ctx.createGain();
-    lg.gain.value = 180;
-    lfo.connect(lg).connect(o.frequency);
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
-    g.gain.setValueAtTime(0.22, t + dur - 0.06);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g).connect(this.master);
     o.start(t);
-    lfo.start(t);
     o.stop(t + dur + 0.05);
-    lfo.stop(t + dur + 0.05);
+  }
+
+  // --- sons de interface ------------------------------------------------------
+
+  /** Clique de madeira (botões). */
+  click() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const p = rand(0.9, 1.12);
+    this.#grain(t, { freq: 520 * p, q: 3, dur: 0.06, gain: 0.55 });
+    this.#body(t, 190 * p, 120 * p, 0.05, 0.25);
+  }
+
+  /** Colocar bloco de pedra. */
+  place() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const p = rand(0.85, 1.15);
+    this.#grain(t, { freq: 850 * p, q: 1.1, dur: 0.09, gain: 0.5 });
+    this.#grain(t + 0.018, { freq: 520 * p, q: 1.4, dur: 0.07, gain: 0.35 });
+    this.#body(t, 140 * p, 80 * p, 0.08, 0.3);
+  }
+
+  /** Quebrar bloco: vários grãos esfarelando. */
+  breakBlock() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const p = rand(0.85, 1.1);
+    for (let i = 0; i < 6; i++) {
+      this.#grain(t + i * rand(0.022, 0.034), { freq: rand(500, 1300) * p, q: rand(1, 2.5), dur: rand(0.04, 0.08), gain: 0.42 - i * 0.05 });
+    }
+    this.#body(t, 120 * p, 60 * p, 0.12, 0.28);
+  }
+
+  /** Liga (coloca) / desliga (quebra). */
+  toggle(on) {
+    if (on) this.place();
+    else this.breakBlock();
+  }
+
+  /** Clique leve de cascalho enquanto arrasta sliders. */
+  tick() {
+    if (!this.ready) return;
+    this.#grain(this.ctx.currentTime, { freq: rand(900, 1300), q: 3, dur: 0.035, gain: 0.22 });
+  }
+
+  /** Camada "impressa" na construção: bloco de pedra com tom subindo devagar. */
+  beep(pitch = 1) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.#grain(t, { freq: 600 * pitch * rand(0.92, 1.08), q: 1.3, dur: 0.06, gain: 0.3 });
+    this.#body(t, 110 * pitch, 70 * pitch, 0.06, 0.18);
+  }
+
+  /** Bloco pesado caindo no chão. */
+  thump() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.#body(t, 95, 38, 0.38, 0.6);
+    this.#grain(t, { freq: 260, q: 0.8, dur: 0.28, gain: 0.55, type: 'lowpass' });
+    this.#grain(t + 0.03, { freq: 700, q: 1.2, dur: 0.12, gain: 0.3 });
+  }
+
+  /** "Conquista": três batidas de madeira subindo (tons médios, nada agudo). */
+  chime() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    [262, 330, 392].forEach((f, i) => {
+      const at = t + i * 0.1;
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.22, at + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+      o.connect(g).connect(this.master);
+      o.start(at);
+      o.stop(at + 0.25);
+      this.#grain(at, { freq: 500, q: 3, dur: 0.04, gain: 0.25 });
+    });
+  }
+
+  /** Sopro grave e arenoso (cortes e desmontagem). */
+  whoosh(dur = 0.6, up = true) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = 1.5;
+    f.frequency.setValueAtTime(up ? 220 : 1300, t);
+    f.frequency.exponentialRampToValueAtTime(up ? 1300 : 200, t + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.55, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random());
+    src.stop(t + dur + 0.1);
+  }
+
+  /** Passo em pedra. */
+  step() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.#grain(t, { freq: rand(380, 520), q: 1.6, dur: 0.05, gain: 0.22 });
+    this.#grain(t + 0.025, { freq: rand(700, 900), q: 2, dur: 0.03, gain: 0.12 });
+  }
+
+  // --- estádio ----------------------------------------------------------------
+
+  /** Sinal de início/gol: buzina grave curta (substitui o apito agudo). */
+  whistle(long = false) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const dur = long ? 0.9 : 0.4;
+    for (const [f, p] of [[196, 0.16], [294, 0.08]]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 900;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(p, t + 0.03);
+      g.gain.setValueAtTime(p, t + dur - 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(lp).connect(g).connect(this.master);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
   }
 
   /** Corneta da torcida. */
   horn() {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
-    for (const [f, p] of [[233, 0.16], [466, 0.07], [349, 0.06]]) {
+    for (const [f, p] of [[147, 0.18], [220, 0.08]]) {
       const o = this.ctx.createOscillator();
       o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f * 0.96, t);
+      o.frequency.setValueAtTime(f * 0.95, t);
       o.frequency.linearRampToValueAtTime(f, t + 0.12);
       const lp = this.ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.value = 1400;
+      lp.frequency.value = 800;
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(p, t + 0.08);
@@ -192,52 +253,54 @@ export class Synth {
     }
   }
 
-  /** Grito de gol: rugido de multidão que cresce e se dissipa. */
+  /** Grito de gol: rugido grave da multidão. */
   cheer(power = 1) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
-    for (const [freq, q, peak] of [[520, 0.8, 0.55], [1300, 1.4, 0.35], [2600, 2, 0.16]]) {
-      const src = this.#noiseSrc();
+    for (const [freq, q, peak] of [[380, 0.7, 0.6], [800, 1.2, 0.35], [1400, 1.6, 0.14]]) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noise;
       const f = this.ctx.createBiquadFilter();
       f.type = 'bandpass';
       f.Q.value = q;
       f.frequency.setValueAtTime(freq * 0.7, t);
-      f.frequency.linearRampToValueAtTime(freq * 1.15, t + 1.2);
+      f.frequency.linearRampToValueAtTime(freq * 1.1, t + 1.2);
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(peak * power, t + 0.35);
       g.gain.setValueAtTime(peak * power, t + 1.6);
       g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
       src.connect(f).connect(g).connect(this.master);
-      src.start(t);
+      src.start(t, Math.random());
       src.stop(t + 3.6);
     }
   }
 
-  /** Fogos: assobio subindo e estouro com estalos. */
+  /** Fogos: chiado subindo, estrondo grave e estalos de cascalho. */
   firework(delay = 0) {
     if (!this.ready) return;
     const t = this.ctx.currentTime + delay;
-    const o = this.ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(500, t);
-    o.frequency.exponentialRampToValueAtTime(1900, t + 0.7);
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 2;
+    f.frequency.setValueAtTime(300, t);
+    f.frequency.exponentialRampToValueAtTime(1100, t + 0.7);
     const g = this.ctx.createGain();
-    this.#env(g, t, 0.05, 0.05, 0.72);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + 0.8);
-    this.#burst(0.5, 180, 0.6, 0.7, 0.72 + delay);
-    for (let i = 0; i < 6; i++) this.#burst(0.05, 3000 + Math.random() * 2000, 0.12, 3, 0.85 + delay + Math.random() * 0.5);
-  }
-
-  step() {
-    if (!this.ready) return;
-    this.#burst(0.04, 1800, 0.05, 4);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.18, t + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random());
+    src.stop(t + 0.8);
+    this.#body(t + 0.72, 80, 35, 0.5, 0.55);
+    this.#grain(t + 0.72, { freq: 220, q: 0.7, dur: 0.45, gain: 0.6, type: 'lowpass' });
+    for (let i = 0; i < 7; i++) this.#grain(t + 0.85 + Math.random() * 0.5, { freq: rand(900, 1600), q: 2.5, dur: 0.04, gain: 0.18 });
   }
 
   /** Ambiente de torcida contínuo (modo Show). */
-  startCrowd(level = 0.22) {
+  startCrowd(level = 0.24) {
     if (!this.ctx || this.crowd) return;
     const t = this.ctx.currentTime;
     const out = this.ctx.createGain();
@@ -245,22 +308,23 @@ export class Synth {
     out.gain.exponentialRampToValueAtTime(level, t + 1.5);
     out.connect(this.master);
     const layers = [];
-    for (const [freq, q, gain, rate] of [[420, 0.7, 0.8, 0.13], [900, 1.1, 0.5, 0.21], [1800, 1.6, 0.22, 0.34]]) {
-      const src = this.#noiseSrc(true);
+    for (const [freq, q, gain, rate] of [[300, 0.7, 0.9, 0.13], [650, 1.1, 0.5, 0.21], [1200, 1.5, 0.18, 0.34]]) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
       const f = this.ctx.createBiquadFilter();
       f.type = 'bandpass';
       f.frequency.value = freq;
       f.Q.value = q;
       const g = this.ctx.createGain();
       g.gain.value = gain;
-      // ondulação lenta como cantos de torcida
       const lfo = this.ctx.createOscillator();
       lfo.frequency.value = rate;
       const lg = this.ctx.createGain();
       lg.gain.value = gain * 0.45;
       lfo.connect(lg).connect(g.gain);
       src.connect(f).connect(g).connect(out);
-      src.start();
+      src.start(0, Math.random() * 2);
       lfo.start();
       layers.push(src, lfo);
     }
@@ -270,8 +334,7 @@ export class Synth {
   stopCrowd() {
     if (!this.crowd) return;
     const { out, layers } = this.crowd;
-    const t = this.ctx.currentTime;
-    out.gain.setTargetAtTime(0.0001, t, 0.4);
+    out.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.4);
     setTimeout(() => layers.forEach((n) => n.stop()), 2000);
     this.crowd = null;
   }

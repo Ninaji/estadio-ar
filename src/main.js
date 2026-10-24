@@ -1,3 +1,5 @@
+import '@fontsource/pixelify-sans/400.css';
+import '@fontsource/pixelify-sans/700.css';
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { App } from './core/app.js';
@@ -48,14 +50,14 @@ const highlight = new Highlight(arena.root);
 const routeView = new RouteView(arena.root, synth);
 const graph = new NavGraph();
 const viewer = new ViewerMode();
-const cuts = new CutController(arena, worker, () => syncCutTools());
+const cuts = new CutController(arena, worker, () => refreshDock());
 
 const maskOf = (keys) => keys.reduce((m, k) => m | (1 << CAT_INDEX[k]), 0);
 // raio-X normal: casca transparente; raio-X da rota: só assentos e circulação vertical sólidos
 const GHOST_XRAY = maskOf(['estrutura', 'fachada', 'cobertura', 'terreno', 'campo']);
 const GHOST_ROUTE = maskOf(['estrutura', 'fachada', 'cobertura', 'terreno', 'campo', 'circulacao', 'servicos', 'operacoes', 'instalacoes']);
 const state = {
-  active: new Set(),
+  planLevel: 2,
   explode: { levels: 0, quads: 0 },
   hidden: 0,
   ghost: false,
@@ -233,7 +235,7 @@ async function enterAR() {
       }
     }
     hud.modeChip.textContent = 'AR';
-    closeSheet();
+    closePanel();
     syncARButton();
   } catch (err) {
     arFailed(err);
@@ -271,6 +273,7 @@ async function exitAR() {
   resetCamera(false);
   hud.modeChip.textContent = '3D';
   syncARButton();
+  refreshDock();
 }
 
 // som
@@ -312,7 +315,7 @@ async function pickRay(ray) {
   const hit = await worker.pick([o.x, o.y, o.z], [d.x, d.y, d.z], cuts.toGrid(), state.hidden, arena.groupOffsets());
   if (!hit) {
     highlight.hide();
-    if (hud.sheetKey === 'info') closeSheet();
+    if (hud.panelKey === 'info') closePanel();
     return;
   }
   const info = describeHit(hit, arena.dims);
@@ -328,7 +331,8 @@ async function pickRay(ray) {
     max = min.clone().addScalar(voxel);
   }
   highlight.show(min.add(off), max.add(off), info.color);
-  hud.openSheet(panels.infoPanel(info, ctxApi), 'info');
+  hud.openPanel({ key: 'info', ...panels.infoPanel(info, ctxApi) });
+  refreshDock();
   synth.click();
 }
 
@@ -353,138 +357,136 @@ function roomBounds(r) {
 }
 
 // ---------------------------------------------------------------------------
-// Ferramentas
+// Ferramentas (dock): cada botão abre/fecha o seu painel; o ponto amarelo indica efeito ativo
 // ---------------------------------------------------------------------------
-const PANEL_TOOLS = ['planta', 'secao', 'fatia', 'niveis', 'pedacos', 'camadas', 'rota', 'show'];
-
 hud.onTool = (id) => {
   synth.unlock();
   if (!state.built) return;
-  if (state.active.has(id) && hud.sheetKey !== id && PANEL_TOOLS.includes(id)) {
-    openPanel(id);
-    synth.click();
-    return;
-  }
-  if (id === 'camadas') {
-    if (hud.sheetKey === 'camadas') closeSheet();
-    else openPanel('camadas');
-    synth.click();
-    return;
-  }
-  toggleTool(id);
+  synth.click();
+  if (hud.panelKey === id) closePanel();
+  else openPanel(id);
 };
 
-hud.onSheetClosed = () => highlight.hide();
+hud.onPanelClosed = () => {
+  highlight.hide();
+  refreshDock();
+};
 
-function setActive(id, on) {
-  if (on) state.active.add(id);
-  else state.active.delete(id);
-  const list = [...state.active];
-  if (state.hidden) list.push('camadas');
-  hud.setActiveTools(list);
+hud.btnReset.addEventListener('click', () => {
+  synth.unlock();
+  if (state.built) resetAll();
+});
+
+panels.setSliderTick(() => synth.tick());
+
+function liveTools() {
+  const live = new Set();
+  if (cuts.active) live.add('cortar');
+  if (state.explode.levels > 0.01 || state.explode.quads > 0.01) live.add('desmontar');
+  if (state.hidden || (state.ghost && !routeView.route)) live.add('camadas');
+  if (routeView.route) live.add('rota');
+  if (show?.on) live.add('show');
+  return live;
+}
+
+function refreshDock() {
+  hud.setDock(hud.panelKey, liveTools());
+  updateViewShift();
+}
+
+/** Centraliza a maquete na área livre entre a barra superior e o painel/dock. */
+const viewShift = { y: 0 };
+function updateViewShift() {
+  if (app.mode !== viewer) return;
+  requestAnimationFrame(() => {
+    const top = hud.hud.querySelector('.topbar').getBoundingClientRect().bottom;
+    const panelOpen = hud.panel.classList.contains('open');
+    const bottomEdge = panelOpen ? hud.panel.getBoundingClientRect().top : hud.hud.querySelector('.dock').getBoundingClientRect().top;
+    const free = (top + bottomEdge) / 2;
+    const target = free - window.innerHeight / 2;
+    gsap.to(viewShift, { y: -target, duration: 0.35, ease: 'power2.out', onUpdate: () => app.setViewShift(viewShift.y) });
+  });
+}
+window.addEventListener('resize', () => updateViewShift());
+
+function panelFor(id) {
+  switch (id) {
+    case 'cortar': return panels.cutPanel(ctxApi);
+    case 'desmontar': return panels.explodePanel(ctxApi);
+    case 'camadas': return panels.layersPanel(ctxApi);
+    case 'show': return panels.showPanel(ctxApi);
+    case 'rota': return routeView.route ? panels.routePanel(routeView.route, ctxApi) : panels.ticketPanel(ctxApi);
+    default: return null;
+  }
 }
 
 function openPanel(id) {
-  const map = {
-    planta: () => panels.planPanel(ctxApi),
-    secao: () => panels.sectionPanel(ctxApi),
-    fatia: () => panels.slicePanel(ctxApi),
-    niveis: () => panels.explodePanel(ctxApi, 'niveis'),
-    pedacos: () => panels.explodePanel(ctxApi, 'pedacos'),
-    camadas: () => panels.layersPanel(ctxApi),
-    show: () => panels.showPanel(ctxApi),
-    rota: () => (routeView.route ? panels.routePanel(routeView.route, ctxApi) : panels.ticketPanel(ctxApi)),
-  };
-  if (!map[id]) return;
+  const p = panelFor(id);
+  if (!p) return;
   highlight.hide();
-  hud.openSheet(map[id](), id);
-  if (id === 'rota' && routeView.route) panels.highlightStep(hud.sheetBody, routeView.stepIdx);
+  hud.openPanel({ key: id, ...p });
+  if (id === 'rota' && routeView.route) panels.highlightStep(hud.panelBody, routeView.stepIdx);
+  refreshDock();
 }
 
-function closeSheet() {
-  hud.closeSheet(false);
-}
-
-function closeIf(id) {
-  if (hud.sheetKey === id) closeSheet();
-}
-
-function toggleTool(id, force) {
-  const on = force ?? !state.active.has(id);
-  switch (id) {
-    case 'planta': {
-      if (on) {
-        const st = cuts.state.h;
-        const target = st.y;
-        cuts.set('h', { on: true, y: 46 });
-        gsap.to(st, { y: target, duration: 1.1, ease: 'power3.out', onUpdate: () => cuts.apply() });
-        synth.whoosh(0.9, false);
-        openPanel('planta');
-      } else {
-        cuts.set('h', { on: false });
-        closeIf('planta');
-        synth.whoosh(0.5, true);
-      }
-      break;
-    }
-    case 'secao':
-      cuts.set('v', { on });
-      synth.whoosh(0.6, on);
-      if (on) openPanel('secao');
-      else closeIf('secao');
-      break;
-    case 'fatia':
-      if (on) {
-        const open = cuts.state.w.open > 10 ? cuts.state.w.open : 90;
-        cuts.state.w.open = 0;
-        cuts.state.w.on = true;
-        animateWedge(open);
-        openPanel('fatia');
-      } else {
-        gsap.to(cuts.state.w, { open: 0, duration: 0.6, ease: 'power2.in', onUpdate: () => cuts.apply(), onComplete: () => { cuts.state.w.open = 90; cuts.set('w', { on: false }); } });
-        synth.whoosh(0.6, false);
-        closeIf('fatia');
-      }
-      break;
-    case 'niveis':
-    case 'pedacos':
-      setExplode(id, on ? 1 : 0, true);
-      if (on) openPanel(id);
-      else closeIf(id);
-      break;
-    case 'raiox':
-      state.ghost = on;
-      arena.setGhost(on ? (routeView.route ? GHOST_ROUTE : GHOST_XRAY) : 0);
-      synth.toggle(on);
-      hud.toast(on ? 'Raio-X: estrutura, fachada, cobertura e solo transparentes' : 'Raio-X desligado');
-      break;
-    case 'rota':
-      if (on) {
-        openPanel('rota');
-        return;
-      }
-      clearRoute();
-      break;
-    case 'show':
-      show.toggle(on);
-      if (on) openPanel('show');
-      else closeIf('show');
-      break;
-    case 'reset':
-      resetAll();
-      return;
-    default:
-      return;
+/** Re-renderiza o painel aberto sem fechar nem pular a rolagem. */
+function refreshPanel() {
+  const id = hud.panelKey;
+  const p = id && panelFor(id);
+  if (p) {
+    hud.openPanel({ key: id, ...p });
+    if (id === 'rota' && routeView.route) panels.highlightStep(hud.panelBody, routeView.stepIdx);
   }
-  if (id !== 'rota') setActive(id, on);
-  if (id === 'planta' || id === 'secao' || id === 'fatia') synth.toggle(on);
+  refreshDock();
 }
 
-function syncCutTools() {
+function closePanel() {
+  hud.closePanel(false);
+  highlight.hide();
+  refreshDock();
+}
+
+// --- cortes: um tipo por vez ------------------------------------------------
+function cutMode() {
   const s = cuts.state;
-  for (const [id, on] of [['planta', s.h.on], ['secao', s.v.on], ['fatia', s.w.on]]) {
-    if (on !== state.active.has(id)) setActive(id, on);
+  if (s.h.on) return 'planta';
+  if (s.v.on) return 'secao';
+  if (s.w.on) return 'fatia';
+  return 'nenhum';
+}
+
+function setCutMode(mode) {
+  const s = cuts.state;
+  gsap.killTweensOf(s.h);
+  gsap.killTweensOf(s.w);
+  const wasWedge = s.w.on;
+  s.h.on = false;
+  s.v.on = false;
+  if (mode !== 'fatia') s.w.on = false;
+  if (mode === 'planta') {
+    const target = s.h.y;
+    s.h.on = true;
+    refreshPanel(); // slider já com o valor final
+    s.h.y = 46;
+    gsap.to(s.h, { y: target, duration: 1.0, ease: 'power3.out', onUpdate: () => cuts.apply() });
+    synth.whoosh(0.8, false);
+    synth.toggle(true);
+    return;
+  } else if (mode === 'secao') {
+    s.v.on = true;
+    cuts.apply();
+    synth.whoosh(0.6, true);
+  } else if (mode === 'fatia') {
+    const open = s.w.open > 10 ? s.w.open : 90;
+    if (!wasWedge) s.w.open = 0;
+    s.w.on = true;
+    animateWedge(open);
+  } else {
+    cuts.apply();
+    synth.breakBlock();
   }
+  if (mode !== 'nenhum') synth.toggle(true);
+  refreshPanel();
 }
 
 function animateWedge(open) {
@@ -492,6 +494,27 @@ function animateWedge(open) {
   synth.whoosh(0.8, true);
 }
 
+function setPlanLevel(i) {
+  const L = LEVELS[i];
+  state.planLevel = i;
+  const y = L.floor + 1.5;
+  synth.whoosh(0.5, y > cuts.state.h.y);
+  gsap.to(cuts.state.h, {
+    y,
+    duration: 0.8,
+    ease: 'power2.inOut',
+    onUpdate: () => cuts.set('h', { on: true }),
+    onComplete: () => hud.panelKey === 'cortar' && refreshPanel(),
+  });
+  hud.toast(`Planta: ${L.name}`);
+}
+
+function flipSection() {
+  cuts.set('v', { side: -cuts.state.v.side });
+  synth.whoosh(0.4);
+}
+
+// --- desmontar ---------------------------------------------------------------
 function setExplode(kind, value, animate) {
   const key = kind === 'niveis' ? 'levels' : 'quads';
   if (value > 0 && routeView.route) clearRoute();
@@ -502,34 +525,46 @@ function setExplode(kind, value, animate) {
       duration: value > 0 ? 1.4 : 0.9,
       ease: value > 0 ? 'elastic.out(1, 0.55)' : 'power3.inOut',
       onUpdate: apply,
-      onComplete: () => value === 0 && synth.thump(),
+      onComplete: () => {
+        if (value === 0) synth.thump();
+        if (hud.panelKey === 'desmontar') refreshPanel();
+        else refreshDock();
+      },
     });
+    if (value > 0) synth.breakBlock();
+    else synth.place();
     synth.whoosh(value > 0 ? 1.0 : 0.7, value > 0);
   } else {
     state.explode[key] = value;
     apply();
   }
-  setActive(kind, value > 0);
+  refreshDock();
 }
 
-function setPlanLevel(i) {
-  const L = LEVELS[i];
-  const y = L.floor + 1.5;
-  gsap.to(cuts.state.h, { y, duration: 0.8, ease: 'power2.inOut', onUpdate: () => cuts.set('h', { on: true }) });
-  synth.whoosh(0.5, y > cuts.state.h.y);
-  hud.toast(`Planta: ${L.name}`);
+function toggleExplode(kind) {
+  const key = kind === 'niveis' ? 'levels' : 'quads';
+  setExplode(kind, state.explode[key] > 0.01 ? 0 : 1, true);
+  setTimeout(refreshPanel, 30);
 }
 
+function assemble() {
+  setExplode('niveis', 0, true);
+  setExplode('pedacos', 0, true);
+  setTimeout(refreshPanel, 30);
+}
+
+// --- camadas -----------------------------------------------------------------
 function setHidden(mask) {
   state.hidden = mask;
   arena.setHidden(mask);
-  setActive('camadas', false);
+  refreshDock();
 }
 
 function toggleCategory(i) {
   const off = ((state.hidden >> i) & 1) === 0;
   setHidden(off ? state.hidden | (1 << i) : state.hidden & ~(1 << i));
-  synth.toggle(!off);
+  if (off) synth.breakBlock();
+  else synth.place();
   return off;
 }
 
@@ -538,9 +573,33 @@ function isolate(keep) {
   let mask = 0;
   for (let i = 0; i < 12; i++) if (!keepIdx.includes(i)) mask |= 1 << i;
   setHidden(mask);
-  synth.whoosh(0.5);
+  synth.breakBlock();
 }
 
+function setGhost(on) {
+  state.ghost = on;
+  arena.setGhost(on ? (routeView.route ? GHOST_ROUTE : GHOST_XRAY) : 0);
+  refreshDock();
+}
+
+function toggleXray() {
+  setGhost(!state.ghost);
+  synth.toggle(state.ghost);
+  hud.toast(state.ghost ? 'Raio-X: estrutura, fachada, cobertura e solo transparentes' : 'Raio-X desligado');
+  return state.ghost;
+}
+
+// --- show --------------------------------------------------------------------
+function toggleShow() {
+  show.toggle(!show.on);
+  refreshPanel();
+}
+
+function fireworks() {
+  for (let k = 0; k < 4; k++) setTimeout(() => show.launchFirework(), k * 250);
+}
+
+// --- reset -------------------------------------------------------------------
 function resetAll() {
   gsap.killTweensOf(cuts.state.h);
   gsap.killTweensOf(cuts.state.w);
@@ -548,19 +607,17 @@ function resetAll() {
   setExplode('niveis', 0, true);
   setExplode('pedacos', 0, true);
   setHidden(0);
-  if (state.ghost) toggleTool('raiox', false);
-  clearRoute();
-  if (show?.on) toggleTool('show', false);
+  if (routeView.route) clearRoute();
+  if (state.ghost) setGhost(false);
+  if (show?.on) show.toggle(false);
   highlight.hide();
-  closeSheet();
-  state.active.clear();
-  hud.setActiveTools([]);
-  if (app.mode === viewer) {
-    resetCamera(true);
-  } else if (app.mode?.reposition) {
-    app.mode.reposition();
-  }
+  hud.closePanel(false);
+  if (app.mode === viewer) resetCamera(true);
+  else app.mode?.resetTransform?.();
+  synth.breakBlock();
   synth.whoosh(0.7, false);
+  hud.toast('Tudo de volta ao início');
+  refreshDock();
 }
 
 // ---------------------------------------------------------------------------
@@ -579,27 +636,21 @@ function traceRoute(ticket) {
     hud.toast('Não encontrei um caminho para esse assento.');
     return;
   }
-  if (state.explode.levels || state.explode.quads) {
-    setExplode('niveis', 0, true);
-    setExplode('pedacos', 0, true);
-  }
+  if (state.explode.levels || state.explode.quads) assemble();
   routeView.show(route);
-  state.ghost = true;
-  setActive('raiox', true);
-  arena.setGhost(GHOST_ROUTE);
+  setGhost(true);
   routeView.onStep = (k) => {
-    if (hud.sheetKey === 'rota') panels.highlightStep(hud.sheetBody, k);
-    synth.beep(1.3);
+    if (hud.panelKey === 'rota') panels.highlightStep(hud.panelBody, k);
+    synth.place();
   };
   routeView.onArrive = (p) => {
     confetti.emit({ position: { x: p.x, y: p.y + 3, z: p.z }, count: 120, speed: 9, spread: 1, colors: CONFETTI, life: [1.5, 3], size: [0.3, 0.6], gravity: -4, drag: 1, flutter: 6 });
     synth.chime();
     hud.toast('Você chegou ao seu lugar! 🎉', 3000);
   };
-  setActive('rota', true);
-  hud.openSheet(panels.routePanel(route, ctxApi), 'rota');
+  hud.openPanel({ key: 'rota', ...panels.routePanel(route, ctxApi) });
+  refreshDock();
   synth.chime();
-  // enquadra a rota
   if (app.mode === viewer) {
     const box = new THREE.Box3();
     route.points.forEach((p) => box.expandByPoint(new THREE.Vector3(p.x, p.y + 14, p.z)));
@@ -612,15 +663,14 @@ function traceRoute(ticket) {
 function clearRoute() {
   routeView.clear();
   state.following = false;
-  setActive('rota', false);
-  closeIf('rota');
-  if (state.ghost) toggleTool('raiox', false);
+  if (state.ghost) setGhost(false);
+  if (hud.panelKey === 'rota') refreshPanel();
+  refreshDock();
 }
 
 function randomTicket() {
   const n = seats.length / 7;
   const seat = seatRecord(Math.floor(Math.random() * n));
-  synth.click();
   traceRoute({ ...state.ticket, tier: seat.tier, sector: seat.sector, row: seat.row, num: seat.num });
 }
 
@@ -628,26 +678,36 @@ function randomTicket() {
 const ctxApi = {
   cuts,
   synth,
+  get cutMode() { return cutMode(); },
+  get planLevel() { return state.planLevel; },
   get explode() { return state.explode; },
   get layers() { return { hidden: state.hidden }; },
+  get ghost() { return state.ghost; },
   get show() { return show; },
   get ticket() { return state.ticket; },
   get following() { return state.following; },
   get canFollow() { return app.mode === viewer; },
-  toggleTool,
-  refreshPanel: () => hud.sheetKey && openPanel(hud.sheetKey),
+  refreshPanel,
+  setCutMode,
   setPlanLevel,
+  flipSection,
   animateWedge,
   setExplode,
+  toggleExplode,
+  assemble,
   setHidden,
   toggleCategory,
   isolate,
+  toggleXray,
+  toggleShow,
+  fireworks,
   traceRoute,
   randomTicket,
+  clearRoute,
   routeToSeat: (s) => traceRoute({ ...state.ticket, ...s }),
   replayRoute: () => { routeView.restart(); synth.click(); },
-  toggleFollow: () => { state.following = !state.following; synth.toggle(state.following); },
-  openTicket: () => { hud.openSheet(panels.ticketPanel(ctxApi), 'rota'); },
+  toggleFollow: () => { state.following = !state.following; synth.toggle(state.following); return state.following; },
+  openTicket: () => hud.openPanel({ key: 'rota', ...panels.ticketPanel(ctxApi) }),
   rowsFor: (t, s) => [...(rowsInfo.get(t * 64 + s) || new Map()).entries()].sort((a, b) => a[0] - b[0]).map(([row, count]) => ({ row, count })),
   seatsIn: (t, s, r) => rowsInfo.get(t * 64 + s)?.get(r) || 0,
 };

@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import gsap from 'gsap';
 
 export const AR_SCALES = [
-  { id: 'maquete', label: 'Maquete 1:500', scale: 1 / 500 },
-  { id: 'mesa', label: 'Mesa 1:300', scale: 1 / 300 },
-  { id: 'sala', label: 'Sala 1:150', scale: 1 / 150 },
+  { id: 'maquete', label: '1:500', scale: 1 / 500 },
+  { id: 'mesa', label: '1:300', scale: 1 / 300 },
+  { id: 'sala', label: '1:150', scale: 1 / 150 },
 ];
 
 export class ARBase {
@@ -47,6 +47,7 @@ export class ARBase {
     document.body.classList.add('ar', bodyClass, 'ar-placing');
     app.scene.add(this.reticle);
     app.stage.visible = false;
+    app.camera.clearViewOffset(); // o deslocamento do modo 3D não vale em AR
     app.camera.near = 0.01;
     app.camera.far = 80;
     app.camera.updateProjectionMatrix();
@@ -65,7 +66,7 @@ export class ARBase {
     const { hud } = this.ctx;
     hud.scaleChips.replaceChildren(...AR_SCALES.map((s) => {
       const b = document.createElement('button');
-      b.className = `pill${s.id === this.scaleId ? ' on' : ''}`;
+      b.className = `blk${s.id === this.scaleId ? ' on' : ''}`;
       b.textContent = s.label;
       b.onclick = () => {
         this.scaleId = s.id;
@@ -110,11 +111,19 @@ export class ARBase {
     this.placed = true;
     app.stage.position.copy(this.reticle.position);
     app.stage.rotation.set(0, this.reticle.rotation.y, 0);
+    this.placedYaw = this.reticle.rotation.y;
     app.stage.scale.setScalar(this.scale * 0.01);
     app.stage.visible = true;
     gsap.to(app.stage.scale, { x: this.scale, y: this.scale, z: this.scale, duration: 0.9, ease: 'back.out(1.6)' });
     document.body.classList.remove('ar-placing');
     this.ctx.onPlaced?.(this.reticle.position.clone());
+  }
+
+  /** Reset: volta escala e giro do posicionamento original. */
+  resetTransform() {
+    if (!this.placed) return;
+    gsap.to(this.app.stage.scale, { x: this.scale, y: this.scale, z: this.scale, duration: 0.6, ease: 'power2.out' });
+    gsap.to(this.app.stage.rotation, { y: this.placedYaw ?? 0, duration: 0.6, ease: 'power2.out' });
   }
 
   reposition() {

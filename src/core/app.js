@@ -52,7 +52,23 @@ export class App {
     if (!this.mode || !this.mode.ownsProjection) {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
+      this.#applyViewShift();
     }
+  }
+
+  /** Desloca o centro da imagem para cima (px) para o modelo não ficar atrás dos painéis. */
+  setViewShift(py) {
+    this.viewShift = py;
+    this.#applyViewShift();
+  }
+
+  #applyViewShift() {
+    const cam = this.camera;
+    if (this.mode?.ownsProjection || this.renderer.xr.isPresenting) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (Math.abs(this.viewShift || 0) < 0.5) cam.clearViewOffset();
+    else cam.setViewOffset(w, h, 0, this.viewShift, w, h);
   }
 
   async setMode(mode) {
