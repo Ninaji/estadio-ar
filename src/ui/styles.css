@@ -233,3 +233,16 @@ body.debug .fps { display: block; }
 .steps li::before { font-family: var(--num); font-weight: 700; }
 .chips span { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-weight: 600; }
 .swatch, .sw { display: block; }
+
+/* ---------- GPS da rota: uma instrução por vez ---------- */
+.gps-sum { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); height: 18px; margin: -4px 0 6px; white-space: nowrap; overflow: hidden; }
+.gps-sum b { font-family: var(--num); color: var(--text); flex-shrink: 0; }
+.gps { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; height: 76px; margin-bottom: 6px; }
+.gps > .blk { height: 76px; }
+.gps-card {
+  display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 10px; min-width: 0; touch-action: pan-y;
+  background: rgba(255, 210, 63, 0.1); border: 2px solid var(--gold); box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.06);
+}
+.gps-count { font-family: var(--num); font-weight: 700; font-size: 12px; color: var(--gold); line-height: 1; }
+.gps-text { font-size: 14px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gps-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 14px; }

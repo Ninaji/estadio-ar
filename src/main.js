@@ -70,6 +70,7 @@ let seats = null;
 let crowd = null;
 let match = null;
 let show = null;
+let routeUI = null; // painel do GPS aberto (setStep/setPlaying)
 const seatIndex = new Map();
 const rowsInfo = new Map();
 const seatKey = (t, s, r, n) => ((t * 64 + s) * 64 + r) * 4096 + n;
@@ -415,7 +416,11 @@ function panelFor(id) {
     case 'desmontar': return panels.explodePanel(ctxApi);
     case 'camadas': return panels.layersPanel(ctxApi);
     case 'show': return panels.showPanel(ctxApi);
-    case 'rota': return routeView.route ? panels.routePanel(routeView.route, ctxApi) : panels.ticketPanel(ctxApi);
+    case 'rota': {
+      if (!routeView.route) return panels.ticketPanel(ctxApi);
+      routeUI = panels.routePanel(routeView.route, ctxApi);
+      return routeUI;
+    }
     default: return null;
   }
 }
@@ -425,7 +430,6 @@ function openPanel(id) {
   if (!p) return;
   highlight.hide();
   hud.openPanel({ key: id, ...p });
-  if (id === 'rota' && routeView.route) panels.highlightStep(hud.panelBody, routeView.stepIdx);
   refreshDock();
 }
 
@@ -435,7 +439,6 @@ function refreshPanel() {
   const p = id && panelFor(id);
   if (p) {
     hud.openPanel({ key: id, ...p });
-    if (id === 'rota' && routeView.route) panels.highlightStep(hud.panelBody, routeView.stepIdx);
   }
   refreshDock();
 }
@@ -640,15 +643,17 @@ function traceRoute(ticket) {
   routeView.show(route);
   setGhost(true);
   routeView.onStep = (k) => {
-    if (hud.panelKey === 'rota') panels.highlightStep(hud.panelBody, k);
+    if (hud.panelKey === 'rota') routeUI?.setStep(k);
     synth.place();
   };
   routeView.onArrive = (p) => {
+    routeUI?.setPlaying(false);
     confetti.emit({ position: { x: p.x, y: p.y + 3, z: p.z }, count: 120, speed: 9, spread: 1, colors: CONFETTI, life: [1.5, 3], size: [0.3, 0.6], gravity: -4, drag: 1, flutter: 6 });
     synth.chime();
     hud.toast('Você chegou ao seu lugar! 🎉', 3000);
   };
-  hud.openPanel({ key: 'rota', ...panels.routePanel(route, ctxApi) });
+  routeUI = panels.routePanel(route, ctxApi);
+  hud.openPanel({ key: 'rota', ...routeUI });
   refreshDock();
   synth.chime();
   if (app.mode === viewer) {
@@ -658,6 +663,26 @@ function traceRoute(ticket) {
     const size = box.getSize(new THREE.Vector3()).length();
     viewer.focus(c, Math.max(70, size * 0.9), gsap);
   }
+}
+
+/** Carrossel do GPS: vai para a etapa k, pausa o boneco e mostra o trecho. */
+function gotoStep(k) {
+  if (!routeView.route) return;
+  routeView.goToStep(k, false);
+  routeUI?.setPlaying(false);
+  synth.click();
+  if (app.mode === viewer && !state.following) {
+    const c = routeView.stepCenter(routeView.stepIdx);
+    const p = new THREE.Vector3(c.x, c.y, c.z);
+    arena.root.localToWorld(p);
+    viewer.focus(p, THREE.MathUtils.clamp(c.span * 1.1, 45, 140), gsap);
+  }
+}
+
+function togglePlay() {
+  routeView.setPlaying(!routeView.playing);
+  synth.click();
+  return routeView.playing;
 }
 
 function clearRoute() {
@@ -705,6 +730,10 @@ const ctxApi = {
   randomTicket,
   clearRoute,
   routeToSeat: (s) => traceRoute({ ...state.ticket, ...s }),
+  get stepIdx() { return routeView.stepIdx; },
+  get playing() { return routeView.playing; },
+  gotoStep,
+  togglePlay,
   replayRoute: () => { routeView.restart(); synth.click(); },
   toggleFollow: () => { state.following = !state.following; synth.toggle(state.following); return state.following; },
   openTicket: () => hud.openPanel({ key: 'rota', ...panels.ticketPanel(ctxApi) }),

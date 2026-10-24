@@ -181,8 +181,50 @@ export class RouteView {
     if (!this.route) return;
     this.progress = 0;
     this.stepIdx = -1;
+    this._lastIdx = undefined;
     this.arrived = false;
     this.playing = true;
+  }
+
+  get stepCount() {
+    return this.route ? this.route.steps.length : 0;
+  }
+
+  /** Índices de pontos [início, fim] da etapa k. */
+  #stepRange(k) {
+    const steps = this.route.steps;
+    const a = steps[k].startIdx;
+    const b = k + 1 < steps.length ? Math.max(a, steps[k + 1].startIdx) : this.pts.length - 1;
+    return [a, b];
+  }
+
+  /** Leva o boneco ao início da etapa k (carrossel do GPS). */
+  goToStep(k, play = false) {
+    if (!this.route) return;
+    k = Math.max(0, Math.min(this.stepCount - 1, k));
+    const [a] = this.#stepRange(k);
+    const last = k === this.stepCount - 1;
+    this.progress = last ? this.total : this.cum[a];
+    this.stepIdx = k;
+    this._lastIdx = a;
+    this.arrived = last;
+    this.playing = play && !last;
+    this.onStep(k);
+  }
+
+  setPlaying(play) {
+    if (!this.route) return;
+    if (play && this.arrived) this.restart();
+    else this.playing = play;
+  }
+
+  /** Centro (espaço da arena, metros) do trecho da etapa k, para a câmera mirar. */
+  stepCenter(k) {
+    const [a, b] = this.#stepRange(Math.max(0, Math.min(this.stepCount - 1, k)));
+    const mid = (this.cum[a] + this.cum[b]) / 2;
+    const p = this.#pointAt(mid);
+    const span = this.cum[b] - this.cum[a];
+    return { x: p.x, y: p.y, z: p.z, span };
   }
 
   /** Posição atual do boneco (para a câmera seguir). */

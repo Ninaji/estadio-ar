@@ -180,27 +180,52 @@ export function ticketPanel(ctx) {
   return { title: 'Seu ingresso', icon: 'ticket', body };
 }
 
+/**
+ * GPS compacto: uma instrução por vez num carrossel com setas (e deslizar o dedo).
+ * Devolve setStep(k) para o boneco atualizar a etapa sem redesenhar o painel.
+ */
 export function routePanel(route, ctx) {
+  const steps = route.steps;
   const min = Math.max(1, Math.round(route.time / 60));
+  const count = h('span', { class: 'gps-count' });
+  const text = h('div', { class: 'gps-text' });
+  const sub = h('div', { class: 'gps-sub' });
+  const card = h('div', { class: 'gps-card' }, count, text, sub);
+  const prev = blk({ icon: 'left', title: 'Etapa anterior', size: 22, onClick: () => ctx.gotoStep(current - 1) });
+  const next = blk({ icon: 'right', title: 'Próxima etapa', size: 22, onClick: () => ctx.gotoStep(current + 1) });
+  const playBtn = blk({ icon: 'pause', label: 'Pausar', size: 18 });
+  let current = 0;
+  const setStep = (k) => {
+    current = Math.max(0, Math.min(steps.length - 1, k));
+    const s = steps[current];
+    count.textContent = `${current + 1}/${steps.length}`;
+    text.textContent = s.text;
+    sub.textContent = s.sub || '';
+    prev.disabled = current === 0;
+    next.disabled = current === steps.length - 1;
+  };
+  const setPlaying = (playing) => {
+    playBtn.replaceChildren(...blk({ icon: playing ? 'pause' : 'play', label: playing ? 'Pausar' : 'Andar', size: 18 }).childNodes);
+  };
+  playBtn.addEventListener('click', () => setPlaying(ctx.togglePlay()));
+  // deslizar o dedo no cartão troca de etapa
+  let sx = null;
+  card.addEventListener('pointerdown', (e) => { sx = e.clientX; });
+  card.addEventListener('pointerup', (e) => {
+    if (sx === null) return;
+    const dx = e.clientX - sx;
+    sx = null;
+    if (Math.abs(dx) > 36) ctx.gotoStep(current + (dx < 0 ? 1 : -1));
+  });
+  setStep(Math.max(0, ctx.stepIdx));
+  setPlaying(ctx.playing);
   const body = h('div', {},
-    h('div', { class: 'chips' },
-      h('span', {}, `Setor ${route.sector.id}`), h('span', {}, route.tier.name), h('span', {}, `Fila ${route.seat.row + 1}`), h('span', {}, `Assento ${route.seat.num}`)),
-    h('div', { class: 'kpis' },
-      h('div', { class: 'kpi' }, h('b', {}, `${Math.round(route.distance)} m`), h('span', {}, 'distância')),
-      h('div', { class: 'kpi' }, h('b', {}, `${min} min`), h('span', {}, 'a pé')),
-      h('div', { class: 'kpi' }, h('b', {}, route.gate ? `P${route.gate.n}` : '—'), h('span', {}, 'portão'))),
-    h('ol', { class: 'steps' }, ...route.steps.map((s) => h('li', {}, s.text, s.sub ? h('small', {}, s.sub) : null))),
+    h('div', { class: 'gps-sum' }, `${route.sector.id} · fila ${route.seat.row + 1} · assento ${route.seat.num}`, h('b', {}, `${Math.round(route.distance)} m · ${min} min · P${route.gate ? route.gate.n : '?'}`)),
+    h('div', { class: 'gps' }, prev, card, next),
     h('div', { class: 'grid c4' },
-      blk({ icon: 'play', label: 'Repetir', cls: 'tall', size: 22, onClick: () => ctx.replayRoute() }),
-      ctx.canFollow ? blk({ icon: 'walk', label: 'Seguir', cls: 'tall', size: 22, on: ctx.following, onClick: (e) => e.currentTarget.classList.toggle('on', ctx.toggleFollow()) }) : blk({ icon: 'walk', label: 'Seguir', cls: 'tall', size: 22, disabled: true }),
-      blk({ icon: 'ticket', label: 'Outro', cls: 'tall', size: 22, onClick: () => ctx.openTicket() }),
-      blk({ icon: 'close', label: 'Limpar', cls: 'tall', size: 22, onClick: () => ctx.clearRoute() })));
-  return { title: 'Rota até o seu lugar', icon: 'route', body };
-}
-
-export function highlightStep(panelBody, idx) {
-  const items = panelBody.querySelectorAll('.steps li');
-  items.forEach((li, i) => li.classList.toggle('now', i === idx));
-  const el = items[idx];
-  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      playBtn,
+      blk({ icon: 'walk', label: 'Seguir', size: 18, on: ctx.following, disabled: !ctx.canFollow, onClick: (e) => e.currentTarget.classList.toggle('on', ctx.toggleFollow()) }),
+      blk({ icon: 'ticket', label: 'Outro', size: 18, onClick: () => ctx.openTicket() }),
+      blk({ icon: 'close', label: 'Limpar', size: 18, onClick: () => ctx.clearRoute() })));
+  return { title: 'Rota até o seu lugar', icon: 'route', body, setStep, setPlaying };
 }
