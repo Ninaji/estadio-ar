@@ -43,3 +43,14 @@ describe('tampas do corte', () => {
     expect(isRemoved(cut, 2, 3, 2)).toBe(false);
   });
 });
+
+describe('tampas na fronteira dos quadrantes', () => {
+  it('aparecem quando o corte vertical coincide com o plano z = 0', () => {
+    const g = new VoxelGrid(dims);
+    for (let i = 1; i < 7; i++) for (let j = 1; j < 3; j++) for (let k = 1; k < 7; k++) g.set(i, j, k, MAT.rocha);
+    const cut = emptyCut();
+    cut.v = { on: true, axis: 2, idx: dims.nz / 2, side: 1 };
+    const caps = buildCaps(g, makeGroupInfo(dims), cut);
+    expect(caps.reduce((a, m) => a + m.quads, 0)).toBeGreaterThan(0);
+  });
+});

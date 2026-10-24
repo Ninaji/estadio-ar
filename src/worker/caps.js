@@ -1,7 +1,7 @@
 // Tampas do corte: faces de voxels mantidos cujo vizinho sólido foi removido e que
 // a malha principal não desenhou. São as "camadas do bolo" que aparecem no corte.
 import { MAT_TRANSLUCENT } from '../stadium/palette.js';
-import { QuadSink, emitQuad, faceNeeded } from './mesher.js';
+import { QuadSink, emitQuad } from './mesher.js';
 import { isRemoved, verticalRemoved, wedgeRemoved } from '../slicing/cutPredicate.js';
 
 const AO_FULL = [3, 3, 3, 3];
@@ -14,8 +14,10 @@ export function buildCaps(grid, info, cut) {
   const groupOf = (i, j, k) => levelJ[j] * 4 + qI[i] + qK[k];
   const idx = (i, j, k) => (j * nz + k) * nx + i;
   const solidOpaque = (m) => m !== 0 && MAT_TRANSLUCENT[m] === 0;
+  // Toda face entre dois voxels opacos separados pelo corte vira tampa: a malha visível
+  // nunca as desenha (no máximo nos conjuntos de revelação/desmontagem, que ficam ocultos).
   const capKey = (A, B, isB, i, j, k) => {
-    if (!solidOpaque(A) || !solidOpaque(B) || faceNeeded(A, B, isB)) return 0;
+    if (!solidOpaque(A) || !solidOpaque(B)) return 0;
     return A | (groupOf(i, j, k) << 16);
   };
 
